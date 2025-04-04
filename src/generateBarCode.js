@@ -2,8 +2,7 @@ const Openpay = require('openpay')
 const pdf = require('html-pdf')
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3')
 
-
-const { convertPdfToImage } = require('./pdfToJpg')
+const convertPdfToImage = require('./pdfToJpg')
 const { sequelize, gbplus } = require('./db')
 const { readTxtFile } = require('./readTxt')
 
@@ -111,16 +110,19 @@ async function generateBarCode(chargePayload) {
 
     pdf.create(reportContent, options).toBuffer(async (err, buffer) => {
       if (err) {
-        return
+        return null
       }
 
       const imgFile = await convertPdfToImage(buffer)
+      console.log('🚀 ~ pdf.create ~ imgFile:', imgFile)
 
       const params = {
         Bucket: 'gbplus.inter3.testing',
         Key: `paynet/${chargePayload.idOrden}_op.png`,
-        Body: imgFile,
+        Body: imgFile[0].content,
+        // Body: buffer,
         ContentType: 'image/png',
+        // ContentType: 'application/pdf',
         ACL: 'public-read',
       }
 
