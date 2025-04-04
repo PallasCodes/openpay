@@ -1,31 +1,41 @@
 require('dotenv').config()
 const { Sequelize } = require('sequelize')
 
-const sequelize = new Sequelize({
-  dialect: 'mssql',
-  logging: false,
-  dialectOptions: {
-    instanceName: 'MSSQLSERVER01',
-    trustedConnection: true,
+const sequelize = new Sequelize(
+  process.env.DB_NAME,
+  process.env.DB_USERNAME,
+  process.env.DB_PASSWORD,
+  {
+    host: process.env.DB_HOST,
+    dialect: 'mssql',
+    logging: false,
+    dialectOptions: {
+      options: {
+        instanceName: 'MSSQLSERVER01',
+        encrypt: true,
+        trustServerCertificate: true,
+      },
+    },
   },
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  username: process.env.DB_USERNAME,
-  password: process.env.DB_PASSWORD,
-})
+)
 
-const gbplus = new Sequelize({
-  dialect: 'mssql',
-  logging: false,
-  dialectOptions: {
-    instanceName: 'MSSQLSERVER01',
-    trustedConnection: true,
+const gbplus = new Sequelize(
+  process.env.DB_NAME_GBPLUS,
+  process.env.DB_USERNAME,
+  process.env.DB_PASSWORD,
+  {
+    host: process.env.DB_HOST,
+    dialect: 'mssql',
+    logging: false,
+    dialectOptions: {
+      options: {
+        instanceName: 'MSSQLSERVER01',
+        encrypt: true,
+        trustServerCertificate: true,
+      },
+    },
   },
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME_GBPLUS,
-  username: process.env.DB_USERNAME,
-  password: process.env.DB_PASSWORD,
-})
+)
 
 module.exports = {
   sequelize,
