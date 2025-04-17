@@ -2,7 +2,6 @@ const Openpay = require('openpay')
 const pdf = require('html-pdf')
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3')
 
-const convertPdfToImage = require('./pdfToJpg')
 const { sequelize, gbplus } = require('./db')
 const { readTxtFile } = require('./readTxt')
 
@@ -14,28 +13,29 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 })
-const openpay = new Openpay(process.env.MERCHANT_ID, process.env.PRIVATE_KEY, [
-  process.env.IS_PRODUCTION === 'true',
-])
+
+let openpay
+
+if (process.env.IS_PRODUCTION === 'true') {
+  openpay = new Openpay(process.env.MERCHANT_ID, process.env.PRIVATE_KEY, [
+    true,
+  ])
+} else {
+  openpay = new Openpay(
+    process.env.MERCHANT_ID_TESTING,
+    process.env.PRIVATE_KEY_TESTING,
+  )
+}
 
 let NUM_CARGOS_GENERADOS = 0
 let NUM_CARGOS_ERROR = 0
 let NUM_CARGOS_SIN_EMAIL = 0
 
 async function registerCharge(payload) {
-  try {
-    await gbplus.query(`
-      INSERT INTO op.pagoAdeudo (folioInterno, idOrden, montoPagar, tiempoCreacion, urlCodigoBarras, idTransaccionOP, urlPdf, referencia)
-      VALUES ('${payload.folioInterno}', ${payload.idOrden}, ${
-      payload.montoPagar
-    }, '${payload.tiempoCreacion}', 
-      '${payload.urlCodigoBarras.split('?')[0]}', '${
-      payload.idTransaccionOP
-    }', '${payload.urlPdf}', '${payload.referencia}')
-    `)
-  } catch (error) {
-    throw new Error(error)
-  }
+  await gbplus.query(`
+    INSERT INTO web.eventoOpenpay (idOrden, idTransaccion)
+    VALUES (${payload.idOrden}, '${payload.idTransaccionOP}')
+  `)
 }
 
 async function getBarCode(chargePayload) {
@@ -51,7 +51,7 @@ async function getBarCode(chargePayload) {
         return resolve(body)
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       throw new Error(error)
     }
   })
@@ -71,6 +71,7 @@ async function generateBarCode(chargePayload) {
 
   try {
     const result = await getBarCode(payloadOP)
+    console.log('🚀 ~ generateBarCode ~ result:', result)
 
     const payload = {
       folioInterno: chargePayload.folioInterno,
@@ -113,16 +114,11 @@ async function generateBarCode(chargePayload) {
         return null
       }
 
-      const imgFile = await convertPdfToImage(buffer)
-      console.log('🚀 ~ pdf.create ~ imgFile:', imgFile)
-
       const params = {
         Bucket: 'gbplus.inter3.testing',
-        Key: `paynet/${chargePayload.idOrden}_op.png`,
-        Body: imgFile[0].content,
-        // Body: buffer,
-        ContentType: 'image/png',
-        // ContentType: 'application/pdf',
+        Key: `paynet/${chargePayload.idOrden}_op.pdf`,
+        Body: buffer,
+        ContentType: 'application/pdf',
         ACL: 'public-read',
       }
 
@@ -130,11 +126,11 @@ async function generateBarCode(chargePayload) {
         const command = new PutObjectCommand(params)
         await s3.send(command)
       } catch (error) {
-        console.log(error)
+        console.error(error)
       }
     })
   } catch (error) {
-    console.log(error)
+    console.error(error)
   }
 }
 
@@ -147,33 +143,36 @@ async function generateAllBarCodes() {
 
   const [results] = await sequelize.query(query)
 
-  console.log(`Total de cargos a generar: ${results.length}`)
+  console.info(`Total de cargos a generar: ${results.length}`)
 
-  const promises = []
+  for (let i = 0; i < results.length; i += 50) {
+    const promises = []
 
-  for (let i = 0; i < results.length; i++) {
-    if (results[i].email) {
-      console.log(
-        `Generando cargo ${i + 1} de ${results.length} - idOrden: ${
-          results[i].idOrden
-        }`,
-      )
-      const payload = {
-        ...results[i],
-        saldoVencidoRea: Number(results[i].saldoVencidoRea.toFixed(2)),
-      }
+    for (let j = 0; j < 50; j += 1) {
+      if (results[i + j]?.email) {
+        console.info(
+          `Generando cargo ${i + j + 1} de ${results.length} - idOrden: ${
+            results[i + j].idOrden
+          }`,
+        )
 
-      if (results[i].saldoVencidoRea >= 29999) {
-        promises.push(generateMultipleBarcodes(payload))
-      } else {
+        const saldoVencidoReal = Number(
+          results[i + j].saldoVencidoRea.toFixed(2),
+        )
+
+        const payload = {
+          ...results[i + j],
+          saldoVencidoRea: saldoVencidoReal > 29999 ? 29998 : saldoVencidoReal,
+        }
+
         promises.push(generateBarCode(payload))
+      } else {
+        NUM_CARGOS_SIN_EMAIL += 1
       }
-    } else {
-      NUM_CARGOS_SIN_EMAIL += 1
+
+      await Promise.allSettled(promises)
     }
   }
-
-  await Promise.all(promises)
 
   return {
     NUM_CARGOS_ERROR,
