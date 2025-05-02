@@ -71,8 +71,7 @@ async function generateBarCode(chargePayload) {
 
   try {
     const result = await getBarCode(payloadOP)
-    console.log('🚀 ~ generateBarCode ~ result:', result)
-
+    
     const payload = {
       folioInterno: chargePayload.folioInterno,
       idOrden: chargePayload.idOrden,
